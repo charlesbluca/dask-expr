@@ -35,7 +35,10 @@ replacement_rules = []
 no_default = "__no_default__"
 
 
-class Expr:
+from dask.typing import DaskGraph
+# Note: subclassing isn't required. This is just for the prototype to have a
+# check for abstractmethods but the runtime checks for duck-typing/protocol only
+class Expr(DaskGraph):
     """Primary class for all Expressions
 
     This mostly includes Dask protocols and various Pandas-like method
@@ -699,8 +702,10 @@ class Expr:
     def _meta(self):
         raise NotImplementedError()
 
-    def __dask_graph__(self):
+    def _materialize(self):
         """Traverse expression tree, collect layers"""
+        from distributed.scheduler import ensure_materialization_allowed
+        ensure_materialization_allowed()
         stack = [self]
         seen = set()
         layers = []

@@ -93,15 +93,19 @@ def _wrap_unary_expr_op(self, op=None):
 #
 # Collection classes
 #
-
-
-class FrameBase(DaskMethodsMixin):
+from dask.typing import NewDaskCollection
+# Note: subclassing isn't required. This is just for the prototype to have a
+# check for abstractmethods but the runtime checks for duck-typing/protocol only
+class FrameBase(DaskMethodsMixin, NewDaskCollection):
     """Base class for Expr-backed Collections"""
 
     __dask_scheduler__ = staticmethod(
         named_schedulers.get("threads", named_schedulers["sync"])
     )
     __dask_optimize__ = staticmethod(lambda dsk, keys, **kwargs: dsk)
+
+    def __dask_tokenize__(self):
+        return self.expr._name
 
     def __init__(self, expr):
         self._expr = expr
@@ -154,14 +158,7 @@ class FrameBase(DaskMethodsMixin):
         return DaskMethodsMixin.compute(out, **kwargs)
 
     def __dask_graph__(self):
-        out = self.expr
-        out = out.lower_completely()
-        return out.__dask_graph__()
-
-    def __dask_keys__(self):
-        out = self.expr
-        out = out.lower_completely()
-        return out.__dask_keys__()
+        return self.expr
 
     def simplify(self):
         return new_collection(self.expr.simplify())
@@ -177,6 +174,15 @@ class FrameBase(DaskMethodsMixin):
     @property
     def dask(self):
         return self.__dask_graph__()
+
+    def finalize_compute(self) -> FrameBase:
+        from ._repartition import RepartitionToFewer
+        if self.npartitions > 1:
+            return new_collection(RepartitionToFewer(self.expr, 1))
+        return self
+
+    def postpersist(self, futures: dict) -> NewDaskCollection:
+        return from_graph(futures, self._meta, self.divisions, self._name)
 
     def __dask_postcompute__(self):
         state = new_collection(self.expr.lower_completely())
